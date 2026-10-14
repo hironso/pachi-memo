@@ -2,7 +2,7 @@
 import * as db from './db.js';
 import * as C from './calc.js';
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const RETAIN_KEY = 'pachi-memo.retain';
 const TABS = ['today', 'history', 'breakdown', 'settings'];
 
@@ -323,7 +323,10 @@ function spinCard(r, e) {
     </div>
     ${fields}
     <p class="error">${esc(e.spinError)}</p>
-    <button type="button" class="calc-btn" data-action="spin-calc">計算する</button>
+    <div class="calc-row">
+      <button type="button" class="btn-sub" data-action="spin-clear">クリア</button>
+      <button type="button" class="calc-btn" data-action="spin-calc">計算する</button>
+    </div>
   </section>`;
 }
 
@@ -863,6 +866,24 @@ const actions = {
     render();
   },
   'spin-calc': () => calcSpin(),
+  'spin-clear': () => {
+    // 計算用の入力欄を空にして、そのまま次の数字を入力できるようにする（開始値・保存済みの回転率は残す）
+    const e = state.edit;
+    const [fields, focusId] =
+      e.mode === 'cash'
+        ? [[['cur', 'sp-cur'], ['spinInv', 'sp-inv']], 'sp-cur']
+        : [[['curBalls', 'sp-cb'], ['ballSpins', 'sp-bs']], 'sp-cb'];
+    for (const [key, id] of fields) {
+      e[key] = '';
+      const input = document.getElementById(id);
+      if (input) input.value = '';
+    }
+    e.spinError = '';
+    const err = document.querySelector('.spin-card .error');
+    if (err) err.textContent = '';
+    const target = document.getElementById(focusId);
+    if (target) target.focus();
+  },
   'add-inv': (el) => {
     const cur = C.parseAmount(state.edit.inv);
     const next = (Number.isInteger(cur) ? cur : 0) + Number(el.dataset.amount);
