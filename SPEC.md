@@ -31,7 +31,6 @@
 | kind | string | ○ | 種別（パチンコ／スロット）。レートから自動設定 |
 | investment | number \| null | − | 投資額（円）。打ち始め時点は未入力（null）。持ち玉を使った分も現金換算して含める |
 | payout | number \| null | − | 回収額（円）。換金前は未入力（null） |
-| memo | string | − | メモ |
 | startedAt | string (ISO8601) | ○ | 打ち始めた日時。「台を打ち始める」で自動設定。台番の並び順に使う |
 | createdAt / updatedAt | string (ISO8601) | ○ | 自動設定 |
 
