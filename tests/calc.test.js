@@ -185,3 +185,32 @@ test('バックアップ：書き出し→読み込みで元に戻る、不正�
   assert.throws(() => C.parseBackup(JSON.stringify({ records: [{ ...list[0], rate: 3 }] })));
   assert.throws(() => C.parseBackup(JSON.stringify({ records: [list[0], list[0]] })));
 });
+
+test('回転率の直接入力', () => {
+  assert.equal(C.parseSpinRate('18.5'), 18.5);
+  assert.equal(C.parseSpinRate('１９'), 19);
+  assert.equal(C.parseSpinRate(' 20 '), 20);
+  assert.equal(C.parseSpinRate(''), null);
+  assert.ok(Number.isNaN(C.parseSpinRate('18.55')));
+  assert.ok(Number.isNaN(C.parseSpinRate('abc')));
+  assert.equal(C.describeSpinCheck({ mode: 'manual', value: 18.5 }), '直接入力');
+});
+
+test('過去の記録：投資・回収・回転率を作成時に入れられる（空欄も可）', () => {
+  const now = '2026-10-14T03:00:00.000Z';
+  const p = C.newRecord(
+    { id: 'p', date: '2026-10-01', rate: 4, machine: '海物語', store: 'A店', investment: 12000, payout: 30000, spinRate: 18.5 },
+    now,
+  );
+  assert.equal(C.profitOf(p), 18000);
+  assert.deepEqual(p.spinCheck, { mode: 'manual', value: 18.5, at: now });
+  const blank = C.newRecord({ id: 'b', date: '2026-10-01', rate: 4, machine: '海物語', store: '' }, now);
+  assert.equal(blank.investment, null);
+  assert.equal(blank.payout, null);
+  assert.equal(blank.spinCheck, null);
+  // スロットには回転率を持たせない
+  const s = C.newRecord({ id: 's', date: '2026-10-01', rate: 20, machine: 'リゼロ2', store: '', spinRate: 18.5 }, now);
+  assert.equal(s.spinCheck, null);
+  // バックアップで直接入力の回転率も戻る
+  assert.deepEqual(C.parseBackup(JSON.stringify(C.makeBackup([p], now))), [p]);
+});

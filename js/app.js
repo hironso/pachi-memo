@@ -2,7 +2,7 @@
 import * as db from './db.js';
 import * as C from './calc.js';
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 const RETAIN_KEY = 'pachi-memo.retain';
 const TABS = ['today', 'history', 'breakdown', 'settings'];
 
@@ -19,6 +19,7 @@ const state = {
   breakdown: { by: 'machine', period: 'month', open: null },
   form: null, // 打ち始めの入力中データ
   edit: null, // 台の記録の入力中データ
+  past: null, // 過去の記録の追加の入力中データ
 };
 
 // ---------- 小物 ----------
@@ -93,6 +94,7 @@ function render() {
     today: renderToday,
     start: renderStart,
     record: renderRecord,
+    past: renderPast,
     history: renderHistory,
     breakdown: renderBreakdown,
     settings: renderSettings,
@@ -175,6 +177,12 @@ function combo(scope, field, label, placeholder, value) {
 
 function numberInput({ id, bind, value, placeholder = '', money = false }) {
   return `<input id="${id}" class="num" data-bind="${bind}"${money ? ' data-money' : ''} value="${esc(value)}" placeholder="${esc(placeholder)}" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="done">`;
+}
+
+/** 回転率（千円あたり）の直接入力欄 */
+function spinRateField(id, bind, value) {
+  return `<div class="field"><label for="${id}">回転率（直接入力・任意）</label>
+    <div class="input-box"><input id="${id}" class="num" data-bind="${bind}" value="${esc(value)}" placeholder="例：18.5" inputmode="decimal" autocomplete="off" enterkeyhint="done"><span class="suffix">回／千円</span></div></div>`;
 }
 
 function miniField(id, label, bind, value) {
@@ -285,6 +293,8 @@ function openRecord(id) {
     curBalls: c.mode === 'balls' ? String(c.currentBalls) : '',
     ballSpins: c.mode === 'balls' ? String(c.spins) : '',
     showStartInCard: r.startSpin == null,
+    manualRate: r.spinCheck ? C.formatSpinRate(r.spinCheck.value) : '',
+    origManualRate: r.spinCheck ? C.formatSpinRate(r.spinCheck.value) : '',
     detailsOpen: false,
     spinError: '',
     error: '',
@@ -358,6 +368,7 @@ function renderRecord() {
                 <div class="input-box">${numberInput({ id: 'in-edit-start', bind: 'edit.startSpin', value: e.startSpin, placeholder: '未入力' })}<span class="suffix">回</span></div></div>`
             : ''
         }
+        ${pachinkoNow && r.date < today() ? spinRateField('in-edit-rate', 'edit.manualRate', e.manualRate) : ''}
       </div>
     </details>
     <p class="error">${esc(e.error)}</p>
@@ -369,9 +380,10 @@ function renderRecord() {
 
 function updateProfitPreview() {
   const el = document.getElementById('profit-v');
-  if (!el || !state.edit) return;
-  const inv = C.parseAmount(state.edit.inv);
-  const pay = C.parseAmount(state.edit.pay);
+  const draft = state.view === 'past' ? state.past : state.edit;
+  if (!el || !draft) return;
+  const inv = C.parseAmount(draft.inv);
+  const pay = C.parseAmount(draft.pay);
   if (Number.isInteger(inv) && Number.isInteger(pay)) {
     const p = pay - inv;
     el.textContent = signedYen(p);
@@ -434,10 +446,15 @@ async function saveRecord() {
   else if (!C.isValidDate(e.date)) e.error = '日付を正しく入力してください';
   else if (Number.isNaN(startSpin)) e.error = '開始回転数は数字で入力してください';
   else e.error = '';
+  const manualChanged = kind === 'pachinko' && e.manualRate.trim() !== e.origManualRate;
+  const manual = manualChanged ? C.parseSpinRate(e.manualRate) : null;
+  if (!e.error && Number.isNaN(manual)) e.error = '回転率は数字で入力してください（例：18.5）';
   if (e.error) {
-    e.detailsOpen = e.detailsOpen || /機種|日付|開始/.test(e.error);
+    e.detailsOpen = e.detailsOpen || /機種|日付|開始|回転率/.test(e.error);
     return render();
   }
+  let spinCheck = kind === 'pachinko' ? r.spinCheck : null;
+  if (manualChanged) spinCheck = manual == null ? null : C.manualSpinCheck(manual, nowIso());
   const updated = {
     ...r,
     date: e.date,
@@ -448,7 +465,7 @@ async function saveRecord() {
     investment: inv,
     payout: pay,
     startSpin,
-    spinCheck: kind === 'pachinko' ? r.spinCheck : null,
+    spinCheck,
     updatedAt: nowIso(),
   };
   await db.put(updated);
@@ -470,6 +487,67 @@ function leaveRecord() {
   const back = state.edit ? state.edit.returnView : 'today';
   state.edit = null;
   go(TABS.includes(back) ? back : 'today');
+}
+
+// ---------- 過去の記録の追加 ----------
+function openPast(date) {
+  const latest = C.sortByStart(state.records).pop();
+  state.past = {
+    date,
+    rate: C.DEFAULT_RATE,
+    machine: '',
+    store: latest ? latest.store : '',
+    inv: '',
+    pay: '',
+    spinRate: '',
+    error: '',
+  };
+  go('past');
+}
+
+function renderPast() {
+  const f = state.past;
+  const pachinko = C.kindOfRate(f.rate) === 'pachinko';
+  return `${pageHead('記録を追加', esc(C.formatMDLong(f.date)), 'past-back')}
+    ${combo('past', 'store', '店舗', '任意', f.store)}
+    <div class="field"><span class="field-label">レート</span>${rateGrid(f.rate, 'past-rate')}</div>
+    ${combo('past', 'machine', '機種', '機種名', f.machine)}
+    <div class="field"><label for="in-inv">投資額</label>
+      <div class="input-box">${numberInput({ id: 'in-inv', bind: 'past.inv', value: f.inv, placeholder: '未入力', money: true })}<span class="suffix">円</span></div></div>
+    <div class="field"><label for="in-pay">回収額</label>
+      <div class="input-box">${numberInput({ id: 'in-pay', bind: 'past.pay', value: f.pay, placeholder: '未入力', money: true })}<span class="suffix">円</span></div></div>
+    <div class="card profit-row row-base"><span class="sub">収支</span><span class="v" id="profit-v">—</span></div>
+    ${pachinko ? spinRateField('in-past-rate', 'past.spinRate', f.spinRate) : ''}
+    <p class="error">${esc(f.error)}</p>
+    <button type="button" class="btn-primary" data-action="past-save">保存</button>`;
+}
+
+async function savePast() {
+  const f = state.past;
+  const machine = f.machine.trim();
+  const inv = C.parseAmount(f.inv);
+  const pay = C.parseAmount(f.pay);
+  const pachinko = C.kindOfRate(f.rate) === 'pachinko';
+  const spinRate = pachinko ? C.parseSpinRate(f.spinRate) : null;
+  if (!machine) f.error = '機種名を入力してください';
+  else if (Number.isNaN(inv)) f.error = '投資額は数字で入力してください';
+  else if (Number.isNaN(pay)) f.error = '回収額は数字で入力してください';
+  else if (pay != null && inv == null) f.error = '回収額を入れるときは投資額も入力してください';
+  else if (Number.isNaN(spinRate)) f.error = '回転率は数字で入力してください（例：18.5）';
+  else f.error = '';
+  if (f.error) return render();
+
+  const rec = C.newRecord(
+    { id: uuid(), date: f.date, rate: f.rate, machine, store: f.store, investment: inv, payout: pay, spinRate },
+    nowIso(),
+  );
+  await db.put(rec);
+  replaceRecord(rec);
+  toast(`${C.formatMD(f.date)} に ${machine} を追加しました`);
+  state.past = null;
+  state.history.mode = 'day';
+  state.history.anchor = rec.date;
+  go('history');
 }
 
 // ---------- 履歴 ----------
@@ -572,7 +650,12 @@ function renderHistory() {
       <div class="big ${C.signClass(s.profit)}">${esc(signedYen(s.profit))}</div>
       <div class="note">${esc(note)}</div>
     </div>
-    ${body}`;
+    ${body}
+    ${
+      h.mode === 'day' && h.anchor < t
+        ? `<button type="button" class="btn-sub add-past" data-action="past-add" data-date="${h.anchor}">＋ この日の記録を追加</button>`
+        : ''
+    }`;
 }
 
 // ---------- 内訳 ----------
@@ -798,6 +881,16 @@ const actions = {
     render();
   },
   'record-save': () => saveRecord(),
+  'past-add': (el) => openPast(el.dataset.date),
+  'past-back': () => {
+    state.past = null;
+    go('history');
+  },
+  'past-rate': (el) => {
+    state.past.rate = Number(el.dataset.rate);
+    render();
+  },
+  'past-save': () => savePast(),
   'record-delete': () => deleteRecord(),
   'hist-mode': (el) => {
     state.history.mode = el.dataset.mode;

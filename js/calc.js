@@ -187,9 +187,19 @@ export function formatSpinRate(v) {
   return v.toFixed(1);
 }
 
-/** 回転率の計算条件の説明（例：3,000円で55回転 / 1,350玉で100回転） */
+/** 回転率の直接入力（例：18.5）。小数1桁まで。空なら null、不正なら NaN */
+export function parseSpinRate(input) {
+  if (input == null) return null;
+  const s = String(input).normalize('NFKC').replace(/[\s回]/g, '');
+  if (s === '') return null;
+  if (!/^\d+(\.\d)?$/.test(s)) return NaN;
+  return Number(s);
+}
+
+/** 回転率の計算条件の説明（例：3,000円で55回転 / 1,350玉で100回転 / 直接入力） */
 export function describeSpinCheck(c) {
   if (!c) return '';
+  if (c.mode === 'manual') return '直接入力';
   if (c.mode === 'cash') return `${formatNumber(c.investment)}円で${formatNumber(c.currentSpin - c.startSpin)}回転`;
   return `持ち玉 ${formatNumber(c.startBalls - c.currentBalls)}玉で${formatNumber(c.spins)}回転`;
 }
@@ -326,7 +336,14 @@ export function breakdown(records, by) {
 }
 
 // ---------- 記録の作成 ----------
-export function newRecord({ id, date, rate, machine, store, startSpin }, nowIso) {
+/**
+ * 記録を作る。過去の記録の追加では investment / payout / spinRate（直接入力）も渡せる。
+ */
+export function newRecord(
+  { id, date, rate, machine, store, startSpin, investment = null, payout = null, spinRate = null },
+  nowIso,
+) {
+  const pachinko = kindOfRate(rate) === 'pachinko';
   return {
     id,
     date,
@@ -334,14 +351,18 @@ export function newRecord({ id, date, rate, machine, store, startSpin }, nowIso)
     store: (store || '').trim(),
     rate,
     kind: kindOfRate(rate),
-    investment: null,
-    payout: null,
-    startSpin: kindOfRate(rate) === 'pachinko' && Number.isInteger(startSpin) ? startSpin : null,
-    spinCheck: null,
+    investment: Number.isInteger(investment) ? investment : null,
+    payout: Number.isInteger(payout) ? payout : null,
+    startSpin: pachinko && Number.isInteger(startSpin) ? startSpin : null,
+    spinCheck: pachinko && typeof spinRate === 'number' && !Number.isNaN(spinRate) ? manualSpinCheck(spinRate, nowIso) : null,
     startedAt: nowIso,
     createdAt: nowIso,
     updatedAt: nowIso,
   };
+}
+
+export function manualSpinCheck(value, nowIso) {
+  return { mode: 'manual', value, at: nowIso };
 }
 
 // ---------- バックアップ ----------
