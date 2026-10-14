@@ -2,7 +2,7 @@
 import * as db from './db.js';
 import * as C from './calc.js';
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const RETAIN_KEY = 'pachi-memo.retain';
 const TABS = ['today', 'history', 'breakdown', 'settings'];
 
@@ -989,6 +989,47 @@ $importFile.addEventListener('change', () => {
   $importFile.value = '';
   if (file) importData(file);
 });
+
+// 履歴：横スワイプで期間を移動（右→左で次、左→右で前）。縦スクロール中は反応しない
+const SWIPE_MIN_PX = 50;
+let swipeStart = null;
+
+document.addEventListener(
+  'touchstart',
+  (ev) => {
+    if (state.view !== 'history' || ev.touches.length !== 1) {
+      swipeStart = null;
+      return;
+    }
+    const t = ev.touches[0];
+    swipeStart = { x: t.clientX, y: t.clientY };
+  },
+  { passive: true },
+);
+
+document.addEventListener(
+  'touchend',
+  (ev) => {
+    if (!swipeStart || state.view !== 'history') return;
+    const t = ev.changedTouches[0];
+    const dx = t.clientX - swipeStart.x;
+    const dy = t.clientY - swipeStart.y;
+    swipeStart = null;
+    if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    const dir = dx < 0 ? 1 : -1;
+    const h = state.history;
+    h.anchor = moveAnchor(h.mode, h.anchor, dir);
+    render();
+    $app.classList.remove('slide-next', 'slide-prev');
+    void $app.offsetWidth; // アニメーションを毎回やり直す
+    $app.classList.add(dir > 0 ? 'slide-next' : 'slide-prev');
+  },
+  { passive: true },
+);
+
+document.addEventListener('touchcancel', () => (swipeStart = null), { passive: true });
+
+$app.addEventListener('animationend', () => $app.classList.remove('slide-next', 'slide-prev'));
 
 // 日付が変わってから開いたときに「今日」を更新
 document.addEventListener('visibilitychange', () => {

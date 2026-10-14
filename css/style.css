@@ -297,3 +297,10 @@ details.card .stack { padding-bottom: 16px; gap: 14px; }
 .rec-card .row { flex-wrap: wrap; row-gap: 2px; }
 .rec-card .detail, .rec-card .hint { white-space: nowrap; }
 .rec-card .row > :last-child { margin-left: auto; }
+
+/* 履歴のスワイプ移動 */
+@keyframes slide-from-right { from { transform: translateX(28px); opacity: .4; } to { transform: none; opacity: 1; } }
+@keyframes slide-from-left { from { transform: translateX(-28px); opacity: .4; } to { transform: none; opacity: 1; } }
+.app.slide-next { animation: slide-from-right .18s ease-out; }
+.app.slide-prev { animation: slide-from-left .18s ease-out; }
+@media (prefers-reduced-motion: reduce) { .app.slide-next, .app.slide-prev { animation: none; } }
